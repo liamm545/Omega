@@ -3,6 +3,7 @@ import plotly.express as px
 import streamlit as st
 
 from dashboard.pages.macro_dashboard import render_industry_insights
+from llm.daily_insight_generator import generate_daily_ai_insight
 from llm.thesis_generator import generate_thesis
 from scoring.event_score import build_event_candidates
 
@@ -100,3 +101,24 @@ def render_daily_briefing(tables: dict, scores: pd.DataFrame) -> None:
         st.markdown(f"**등급:** {top.get('grade', 'missing')}")
         for key, value in thesis.items():
             st.markdown(f"**{key}:** {value}")
+
+    st.subheader("오늘의 AI 산업 인사이트")
+    insight = _cached_daily_ai_insight(
+        _table_records(tables),
+        scores.head(30).to_dict("records") if scores is not None and not scores.empty else [],
+    )
+    with st.container(border=True):
+        for key, value in insight.items():
+            st.markdown(f"**{key}:** {value}")
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_daily_ai_insight(table_records: dict, score_records: list[dict]) -> dict:
+    tables = {name: pd.DataFrame(records) for name, records in table_records.items()}
+    scores = pd.DataFrame(score_records)
+    return generate_daily_ai_insight(tables, scores)
+
+
+def _table_records(tables: dict) -> dict:
+    keep = ["macro_indicators", "industry_kpis", "industry_kpi_evidence", "news"]
+    return {name: tables.get(name, pd.DataFrame()).to_dict("records") for name in keep}

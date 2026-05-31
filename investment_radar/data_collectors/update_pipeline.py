@@ -4,7 +4,7 @@ import pandas as pd
 
 from data_collectors.dart_collector import DartCollector
 from data_collectors.krx_collector import KrxCollector
-from data_collectors.macro_collector import collect_macro_indicators
+from data_collectors.macro_collector import collect_macro_indicators_with_diagnostics
 from data_collectors.naver_news_collector import NaverNewsCollector
 from database.db import load_table, log_update, upsert_rows
 from industry_intelligence.kpi_collectors.news_kpi_collector import collect_industry_kpis_from_news
@@ -166,16 +166,21 @@ def update_naver_news(conn, tickers: list[str] = None, display: int = 10) -> dic
 
 
 def update_macro_indicators(conn) -> dict:
-    macro = collect_macro_indicators()
+    macro, failures = collect_macro_indicators_with_diagnostics()
     if macro.empty:
-        message = "Yahoo Finance/pykrx에서 매크로 지표를 가져오지 못했습니다."
+        detail = " | ".join(failures[:8]) if failures else "no diagnostics"
+        message = f"Yahoo Finance/pykrx에서 매크로 지표를 가져오지 못했습니다. {detail}"
         log_update(conn, "macro.indicators", "failed", 0, message)
-        return {"macro_indicators": 0, "message": message}
+        return {"macro_indicators": 0, "message": message, "failures": failures}
     conn.execute("DELETE FROM macro_indicators WHERE source = 'sample'")
     conn.commit()
     count = upsert_rows(conn, "macro_indicators", macro, ["date", "indicator"])
-    log_update(conn, "macro.indicators", "success", count, "Yahoo Finance/pykrx 매크로 지표 업데이트 완료")
-    return {"macro_indicators": count}
+    status = "partial" if failures else "success"
+    message = "Yahoo Finance/pykrx 매크로 지표 업데이트 완료"
+    if failures:
+        message = f"{message}. 일부 실패: {' | '.join(failures[:5])}"
+    log_update(conn, "macro.indicators", status, count, message)
+    return {"macro_indicators": count, "failures": failures}
 
 
 def update_industry_kpis_from_news(conn) -> dict:

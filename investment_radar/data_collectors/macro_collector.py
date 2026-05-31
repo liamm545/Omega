@@ -14,6 +14,8 @@ def collect_macro_series(series_code: str, start_date: str, end_date: str):
 
 YAHOO_MACRO_SYMBOLS = {
     "USD_KRW": {"symbol": "KRW=X", "name": "USD/KRW", "unit": "KRW"},
+    "KOSPI": {"symbol": "^KS11", "name": "KOSPI", "unit": "pt"},
+    "KOSDAQ": {"symbol": "^KQ11", "name": "KOSDAQ", "unit": "pt"},
     "SP500": {"symbol": "^GSPC", "name": "S&P500", "unit": "pt"},
     "NASDAQ": {"symbol": "^IXIC", "name": "NASDAQ", "unit": "pt"},
     "US10Y": {"symbol": "^TNX", "name": "미국 10년물", "unit": "%"},
@@ -26,14 +28,17 @@ YAHOO_MACRO_SYMBOLS = {
 }
 
 
-def collect_yahoo_macro_indicators(timeout: int = 10) -> pd.DataFrame:
+def collect_yahoo_macro_indicators(timeout: int = 10) -> tuple[pd.DataFrame, list[str]]:
     rows = []
+    failures = []
     for indicator, config in YAHOO_MACRO_SYMBOLS.items():
         try:
             item = _fetch_yahoo_chart(config["symbol"], timeout=timeout)
-        except requests.RequestException:
+        except requests.RequestException as error:
+            failures.append(f"{indicator}/{config['symbol']}: {error}")
             continue
         if not item:
+            failures.append(f"{indicator}/{config['symbol']}: empty response")
             continue
         rows.append(
             {
@@ -47,10 +52,11 @@ def collect_yahoo_macro_indicators(timeout: int = 10) -> pd.DataFrame:
                 "source": f"Yahoo Finance:{config['symbol']}",
             }
         )
-    return pd.DataFrame(rows, columns=_macro_columns())
+    return pd.DataFrame(rows, columns=_macro_columns()), failures
 
 
-def collect_pykrx_market_indicators() -> pd.DataFrame:
+def collect_pykrx_market_indicators() -> tuple[pd.DataFrame, list[str]]:
+    failures = []
     try:
         from pykrx import stock
 
@@ -59,6 +65,7 @@ def collect_pykrx_market_indicators() -> pd.DataFrame:
         for index_ticker, indicator, name in [("1001", "KOSPI", "KOSPI"), ("2001", "KOSDAQ", "KOSDAQ")]:
             frame = stock.get_index_ohlcv_by_date("20250101", today, index_ticker).reset_index()
             if frame.empty:
+                failures.append(f"{indicator}/{index_ticker}: empty response")
                 continue
             frame = frame.rename(columns={"날짜": "date", "종가": "close"})
             frame["date"] = pd.to_datetime(frame["date"]).dt.strftime("%Y-%m-%d")
@@ -76,18 +83,26 @@ def collect_pykrx_market_indicators() -> pd.DataFrame:
                     "source": "pykrx",
                 }
             )
-        return pd.DataFrame(rows, columns=_macro_columns())
-    except Exception:
-        return pd.DataFrame(columns=_macro_columns())
+        return pd.DataFrame(rows, columns=_macro_columns()), failures
+    except Exception as error:
+        return pd.DataFrame(columns=_macro_columns()), [f"pykrx indexes: {error}"]
 
 
 def collect_macro_indicators() -> pd.DataFrame:
-    yahoo = collect_yahoo_macro_indicators()
-    krx = collect_pykrx_market_indicators()
-    combined = pd.concat([yahoo, krx], ignore_index=True)
+    macro, _ = collect_macro_indicators_with_diagnostics()
+    return macro
+
+
+def collect_macro_indicators_with_diagnostics() -> tuple[pd.DataFrame, list[str]]:
+    yahoo, yahoo_failures = collect_yahoo_macro_indicators()
+    krx, krx_failures = collect_pykrx_market_indicators()
+    frames = [frame for frame in [yahoo, krx] if not frame.empty]
+    if not frames:
+        return pd.DataFrame(columns=_macro_columns()), yahoo_failures + krx_failures
+    combined = pd.concat(frames, ignore_index=True)
     if combined.empty:
-        return pd.DataFrame(columns=_macro_columns())
-    return combined.drop_duplicates(subset=["date", "indicator"], keep="last")
+        return pd.DataFrame(columns=_macro_columns()), yahoo_failures + krx_failures
+    return combined.drop_duplicates(subset=["date", "indicator"], keep="last"), yahoo_failures + krx_failures
 
 
 def _fetch_yahoo_chart(symbol: str, timeout: int) -> dict:
