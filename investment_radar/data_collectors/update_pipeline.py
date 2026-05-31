@@ -169,14 +169,15 @@ def update_macro_indicators(conn) -> dict:
     macro, failures = collect_macro_indicators_with_diagnostics()
     if macro.empty:
         detail = " | ".join(failures[:8]) if failures else "no diagnostics"
-        message = f"Yahoo Finance/pykrx에서 매크로 지표를 가져오지 못했습니다. {detail}"
+        message = f"외부 매크로 데이터 소스에서 지표를 가져오지 못했습니다. {detail}"
         log_update(conn, "macro.indicators", "failed", 0, message)
         return {"macro_indicators": 0, "message": message, "failures": failures}
-    conn.execute("DELETE FROM macro_indicators WHERE source = 'sample'")
+    conn.execute("DELETE FROM macro_indicators")
     conn.commit()
     count = upsert_rows(conn, "macro_indicators", macro, ["date", "indicator"])
     status = "partial" if failures else "success"
-    message = "Yahoo Finance/pykrx 매크로 지표 업데이트 완료"
+    sources = ", ".join(sorted(macro["source"].dropna().astype(str).unique()))
+    message = f"매크로 지표 업데이트 완료: {sources}"
     if failures:
         message = f"{message}. 일부 실패: {' | '.join(failures[:5])}"
     log_update(conn, "macro.indicators", status, count, message)

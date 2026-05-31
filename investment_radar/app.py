@@ -46,7 +46,7 @@ def boot_database():
     return get_connection(DB_PATH)
 
 
-@st.cache_data
+@st.cache_data(ttl=60)
 def load_scored_data(_db_version: int = 1):
     conn = boot_database()
     try:
@@ -88,21 +88,8 @@ def render_data_status(tables: dict) -> None:
     logs = load_update_logs()
     latest_price_date = prices["date"].max() if not prices.empty else "missing"
     latest_news_date = news["date"].max() if not news.empty else "missing"
-    actual_price_log = logs[logs["source"].eq("pykrx.daily_prices") & logs["status"].isin(["success", "partial"])]
 
-    with st.expander("데이터 연결 상태와 원본 데이터 확인", expanded=True):
-        if actual_price_log.empty:
-            if len(prices) <= 8:
-                st.warning("pykrx 가격 업데이트 성공 로그가 없고 가격 row가 샘플 기본값 수준입니다. 현재 화면은 샘플 데이터일 가능성이 높습니다.")
-            else:
-                st.info(
-                    f"pykrx 업데이트 로그는 아직 없지만 가격 row가 {len(prices)}건입니다. "
-                    "로그 기능 추가 전에 실제 데이터가 들어갔을 수 있으니, 최근 가격 원본 탭의 날짜와 ticker별 행 수를 확인하세요."
-                )
-        else:
-            row = actual_price_log.iloc[0]
-            st.success(f"pykrx 가격 데이터 연결 확인: {row['created_at']}에 {int(row['rows'])}개 가격 row 업데이트")
-
+    with st.expander("데이터 상태", expanded=False):
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("종목 수", len(stocks))
         col2.metric("가격 row", len(prices))
@@ -150,7 +137,7 @@ def main():
                 load_scored_data.clear()
             st.success(f"업데이트 완료: {result}")
         if st.button("매크로 지표 업데이트"):
-            with st.spinner("Yahoo Finance와 pykrx에서 매크로 지표를 업데이트 중입니다..."):
+            with st.spinner("FRED, Frankfurter, Stooq에서 매크로 지표를 업데이트 중입니다..."):
                 conn = boot_database()
                 result = update_macro_indicators(conn)
                 conn.close()

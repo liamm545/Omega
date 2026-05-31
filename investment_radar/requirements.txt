@@ -1,6 +1,12 @@
-streamlit>=1.35
-pandas>=2.0
+streamlit>=1.58
+pandas>=2.3,<3.0
+numpy>=2,<3
+pyarrow>=18
+matplotlib>=3.10
 plotly>=5.20
+xarray>=2025.1
+numexpr>=2.10
+bottleneck>=1.4
 pyyaml>=6.0
 requests>=2.31
 beautifulsoup4>=4.12
