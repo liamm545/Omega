@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: investment-radar
+    runtime: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: PYTHONPATH
+        value: /app/investment_radar
+      - key: INVESTMENT_RADAR_DB_PATH
+        value: /tmp/investment_radar.sqlite
+      - key: INVESTMENT_RADAR_PRICE_SOURCE
+        value: pykrx
+      - key: INVESTMENT_RADAR_MARKETS
+        value: KOSPI,KOSDAQ
+      - key: INVESTMENT_RADAR_DEFAULT_START_DATE
+        value: 20250101
+      - key: DART_API_KEY
+        sync: false
+      - key: NAVER_CLIENT_ID
+        sync: false
+      - key: NAVER_CLIENT_SECRET
+        sync: false
+      - key: KRX_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false

@@ -1,0 +1,14 @@
+.git
+.DS_Store
+node_modules
+dist
+__pycache__
+*.pyc
+.env
+.env.*
+investment_radar/.env
+investment_radar/*.sqlite
+investment_radar/**/*.sqlite
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*

@@ -1,0 +1,10 @@
+watchlist:
+  - ticker: "005930"
+    name: 삼성전자
+    keywords: ["HBM", "AI 반도체", "파운드리"]
+  - ticker: "000660"
+    name: SK하이닉스
+    keywords: ["HBM", "DRAM", "엔비디아"]
+  - ticker: "035420"
+    name: NAVER
+    keywords: ["AI 생태계", "클라우드", "데이터센터"]

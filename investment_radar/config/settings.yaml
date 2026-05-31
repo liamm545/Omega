@@ -1,0 +1,34 @@
+app:
+  name: Investment Radar
+  mode: sample_mvp
+  timezone: Asia/Seoul
+  daily_briefing_time: "07:30"
+
+database:
+  engine: sqlite
+  path: investment_radar.sqlite
+
+scoring:
+  total_score_weights:
+    valuation_score: 0.20
+    quality_score: 0.15
+    improvement_score: 0.15
+    momentum_score: 0.15
+    sector_score: 0.15
+    event_score: 0.20
+  grade_thresholds:
+    A: 80
+    B: 65
+    C: 50
+    D: 35
+
+api_keys:
+  dart_api_key: "${DART_API_KEY}"
+  naver_client_id: "${NAVER_CLIENT_ID}"
+  naver_client_secret: "${NAVER_CLIENT_SECRET}"
+  openai_api_key: "${OPENAI_API_KEY}"
+
+data_policy:
+  no_source_no_recommendation: true
+  llm_usage: "news_summary_and_thesis_only"
+  trading: "disabled"

@@ -1,0 +1,1 @@
+"""Industry cycle intelligence layer."""

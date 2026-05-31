@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #f5f7fb;
+}
+
+.dark body {
+  background: #0b1120;
+}
+
+/* Seoul SVG districts: transform-box/fill-box keeps hover scale centered per path. */
+.district-path {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    transform 180ms ease,
+    fill 180ms ease,
+    filter 180ms ease;
+  cursor: pointer;
+}
+
+.district-group:hover .district-path,
+.district-path.is-selected {
+  fill: #007bff;
+  transform: scale(1.1);
+  filter: drop-shadow(0 10px 14px rgba(0, 123, 255, 0.28));
+}
+
+.district-label {
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.86);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  user-select: none;
+}
+
+.dark .district-label {
+  stroke: rgba(15, 23, 42, 0.9);
+}
+
+.district-label-selected {
+  stroke: rgba(0, 78, 160, 0.9);
+}

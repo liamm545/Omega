@@ -1,0 +1,16 @@
+sectors:
+  반도체:
+    core_keywords: ["HBM", "DRAM", "NAND", "파운드리", "AI 반도체", "패키징"]
+    demand_drivers: ["데이터센터 CAPEX", "GPU 공급망", "AI 서버"]
+  인터넷:
+    core_keywords: ["AI 검색", "클라우드", "광고", "커머스", "생성형 AI"]
+    demand_drivers: ["AI 서비스 과금", "데이터센터", "플랫폼 체류시간"]
+  전자:
+    core_keywords: ["스마트팩토리", "전장", "로봇", "가전", "AI 디바이스"]
+    demand_drivers: ["B2B 전환", "공장 자동화", "전장 수주"]
+  조선:
+    core_keywords: ["LNG선", "수주잔고", "선가", "방산", "해양플랜트"]
+    demand_drivers: ["신조선가", "환율", "친환경 선박"]
+  방산:
+    core_keywords: ["수출 계약", "K9", "천무", "폴란드", "중동"]
+    demand_drivers: ["국방 예산", "수출 승인", "장기 공급계약"]

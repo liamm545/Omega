@@ -1,0 +1,19 @@
+events:
+  jensen_huang_korea_visit:
+    event_name: 젠슨 황 방한
+    related_person: 젠슨 황
+    keywords: ["젠슨 황", "엔비디아", "방한", "AI 데이터센터", "스마트팩토리"]
+    sectors: ["반도체", "인터넷", "전자", "로봇"]
+    relation_rules:
+      DIRECT: ["공식 회동", "MOU", "공동 개발", "공급 계약"]
+      SUPPLY_CHAIN: ["HBM", "GPU", "데이터센터 인프라", "서버"]
+      SECTOR_THEME: ["AI", "스마트팩토리", "디지털트윈", "로봇"]
+      SPECULATIVE: ["기대감", "수혜 기대", "관련주"]
+  msci_rebalance:
+    event_name: MSCI 편입/비중 확대
+    keywords: ["MSCI", "리밸런싱", "편입", "비중 확대"]
+    sectors: ["전체"]
+  nuclear_export_contract:
+    event_name: 원전 수출 계약
+    keywords: ["원전", "SMR", "수출", "체코", "폴란드", "계약"]
+    sectors: ["원전", "건설", "기계"]
