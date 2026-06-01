@@ -49,6 +49,7 @@ def _try_openai(context: dict) -> dict:
         response = client.chat.completions.create(
             model=get_env("OPENAI_MODEL", "gpt-4o-mini"),
             temperature=0.15,
+            timeout=float(get_env("OPENAI_TIMEOUT_SECONDS", 20)),
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": DAILY_BRIEFING_SYSTEM_PROMPT},

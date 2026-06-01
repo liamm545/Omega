@@ -40,15 +40,6 @@ st.set_page_config(
 @st.cache_resource
 def initialize_app_database():
     initialize_database(DB_PATH)
-    if get_env("INVESTMENT_RADAR_AUTO_BOOTSTRAP", "true").lower() == "true":
-        conn = get_connection(DB_PATH)
-        try:
-            macro = load_table(conn, "macro_indicators")
-            if macro.empty:
-                update_macro_indicators(conn)
-            update_research_intelligence(conn)
-        finally:
-            conn.close()
 
 
 def boot_database():
