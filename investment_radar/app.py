@@ -18,6 +18,7 @@ from data_collectors.update_pipeline import (
     update_macro_indicators,
     update_naver_news,
     update_prices_first_pipeline,
+    update_research_intelligence,
 )
 from database.db import get_connection, initialize_database, load_table
 from scoring.total_score import calculate_all_scores
@@ -62,6 +63,10 @@ def load_scored_data(_db_version: int = 1):
             "industry_kpis": load_table(conn, "industry_kpis"),
             "industry_kpi_evidence": load_table(conn, "industry_kpi_evidence"),
             "industry_cycle_signals": load_table(conn, "industry_cycle_signals"),
+            "sector_analysis": load_table(conn, "sector_analysis"),
+            "event_impacts": load_table(conn, "event_impacts"),
+            "market_pricing": load_table(conn, "market_pricing"),
+            "daily_briefings": load_table(conn, "daily_briefings"),
             "filings": load_table(conn, "filings"),
         }
         scores = calculate_all_scores(tables)
@@ -116,7 +121,7 @@ def render_data_status(tables: dict) -> None:
 
 def main():
     st.sidebar.title("Investment Radar")
-    st.sidebar.caption("MVP입니다")
+    st.sidebar.caption("AI 투자 리서치 플랫폼")
 
     with st.sidebar.expander("API 연결 상태", expanded=False):
         api_status = {
@@ -128,7 +133,7 @@ def main():
             "OpenAI": bool(get_env("OPENAI_API_KEY")),
         }
         for name, ok in api_status.items():
-            st.write(f"{'✅' if ok else '⚠️'} {name}: {'configured' if ok else 'sample fallback'}")
+            st.write(f"{'✅' if ok else '⚠️'} {name}: {'configured' if ok else 'not configured'}")
         if st.button("pykrx 주가 업데이트"):
             with st.spinner("pykrx로 종목/가격/시총 데이터를 업데이트 중입니다..."):
                 conn = boot_database()
@@ -180,6 +185,13 @@ def main():
                 st.success(f"뉴스 업데이트 완료: {result}")
             else:
                 st.error(f"뉴스 업데이트 실패 또는 결과 없음: {result}")
+        if st.button("리서치 분석 업데이트"):
+            with st.spinner("섹터 사이클, 이벤트 영향, 주가 반영도, Daily Briefing을 계산 중입니다..."):
+                conn = boot_database()
+                result = update_research_intelligence(conn)
+                conn.close()
+                load_scored_data.clear()
+            st.success(f"리서치 분석 업데이트 완료: {result}")
 
     page = st.sidebar.radio(
         "화면",
@@ -195,7 +207,8 @@ def main():
     )
 
     tables, scores = load_scored_data()
-    render_macro_dashboard(tables)
+    if page != "Daily Briefing":
+        render_macro_dashboard(tables)
     render_data_status(tables)
 
     if page == "Daily Briefing":

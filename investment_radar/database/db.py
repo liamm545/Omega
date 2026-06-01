@@ -19,6 +19,7 @@ def initialize_database(db_path: Path) -> None:
     conn = get_connection(db_path)
     with open(SCHEMA_PATH, "r", encoding="utf-8") as file:
         conn.executescript(file.read())
+    ensure_schema_compatibility(conn)
     purge_sample_intelligence_data(conn)
     seed_sample_data(conn)
     seed_industry_intelligence_data(conn)
@@ -56,9 +57,47 @@ def log_update(conn: sqlite3.Connection, source: str, status: str, rows: int = 0
     conn.commit()
 
 
+def ensure_schema_compatibility(conn: sqlite3.Connection) -> None:
+    _ensure_columns(
+        conn,
+        "industry_kpis",
+        {
+            "sector": "TEXT",
+            "kpi_name": "TEXT",
+            "yoy_change": "REAL",
+            "mom_change": "REAL",
+            "trend_3m": "REAL",
+            "trend_6m": "REAL",
+            "source_url": "TEXT",
+            "updated_at": "TEXT",
+        },
+    )
+    _ensure_columns(
+        conn,
+        "scores",
+        {
+            "sector_cycle_score": "REAL",
+            "event_impact_score": "REAL",
+            "second_order_score": "REAL",
+            "overheating_penalty": "REAL",
+        },
+    )
+
+
+def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    for column, column_type in columns.items():
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+    conn.commit()
+
+
 def purge_sample_intelligence_data(conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM macro_indicators WHERE source = 'sample'")
     conn.execute("DELETE FROM industry_kpis WHERE source = 'sample'")
+    conn.execute("DELETE FROM news WHERE source = 'sample' OR title LIKE '샘플:%'")
+    conn.execute("DELETE FROM event_stock_map WHERE event_id IN (SELECT event_id FROM events WHERE event_name LIKE '샘플:%')")
+    conn.execute("DELETE FROM events WHERE event_name LIKE '샘플:%'")
     conn.commit()
 
 
@@ -119,44 +158,6 @@ def seed_sample_data(conn: sqlite3.Connection) -> None:
     ]
     conn.executemany("INSERT INTO valuation_features VALUES (?, ?, ?, ?, ?, ?, ?, ?)", valuations)
 
-    news = [
-        ("2026-05-29", "066570", "샘플: 엔비디아 CEO 방한 기대와 AI 스마트팩토리 협력설", "sample", "https://www.lge.co.kr/media", "공식 확인 전 단계의 테마성 뉴스. 후속 MOU 확인 필요.", "엔비디아,스마트팩토리,AI", 0.55, "VISIT"),
-        ("2026-05-29", "035420", "샘플: AI 생태계 협력 기대", "sample", "https://www.navercorp.com", "AI 클라우드와 데이터센터 협력 가능성 관찰.", "AI,클라우드,데이터센터", 0.5, "PARTNERSHIP"),
-        ("2026-05-29", "000660", "샘플: HBM 공급망 기대", "sample", "https://www.skhynix.com", "HBM 수요와 AI 서버 CAPEX 연동성 체크 필요.", "HBM,AI서버", 0.65, "SUPPLY_CHAIN"),
-    ]
-    conn.executemany(
-        "INSERT INTO news (date, ticker, title, source, url, summary, keywords, sentiment, event_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        news,
-    )
-
-    conn.execute(
-        """
-        INSERT INTO events (
-          date, event_name, related_person, related_company, related_sectors,
-          related_keywords, confidence_score, description
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            "2026-05-29",
-            "샘플: 젠슨 황 방한 및 LG/NAVER 회동 가능성",
-            "젠슨 황",
-            "NVIDIA, LG전자, NAVER",
-            "AI 인프라,데이터센터,스마트팩토리,반도체",
-            "엔비디아,AI,스마트팩토리,HBM,데이터센터",
-            72,
-            "공식 계약 전 단계의 이벤트 가설. 후속 공시, MOU, CAPEX 연결 여부 확인 필요.",
-        ),
-    )
-    event_id = conn.execute("SELECT event_id FROM events LIMIT 1").fetchone()["event_id"]
-    event_map = [
-        (event_id, "066570", "DIRECT", 88, "LG전자 스마트팩토리/전장/AI 디바이스 협력 가능성 관찰"),
-        (event_id, "035420", "DIRECT", 82, "NAVER AI 생태계/클라우드 협력 가능성 관찰"),
-        (event_id, "005930", "SUPPLY_CHAIN", 72, "AI 반도체/파운드리/HBM 공급망 연동 가능성"),
-        (event_id, "000660", "SUPPLY_CHAIN", 78, "HBM 수요와 GPU 공급망 직접 연동 가능성"),
-        (event_id, "064400", "SECTOR_THEME", 65, "스마트팩토리/클라우드 구축 2차 수혜 가능성"),
-    ]
-    conn.executemany("INSERT INTO event_stock_map VALUES (?, ?, ?, ?, ?)", event_map)
     conn.commit()
 
 

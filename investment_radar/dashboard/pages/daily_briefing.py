@@ -1,124 +1,248 @@
+import json
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from dashboard.pages.macro_dashboard import render_industry_insights
-from llm.daily_insight_generator import generate_daily_ai_insight
-from llm.thesis_generator import generate_thesis
+from event_impact.event_impact_analyzer import analyze_event_impacts
+from industry_kpi.kpi_signal import latest_kpi_status
+from llm.deep_research_analyst import generate_deep_daily_briefing
 from scoring.event_score import build_event_candidates
+from sector_intelligence.sector_analyzer import build_sector_analysis
+
+
+SNAPSHOT_INDICATORS = ["USD_KRW", "KOSPI", "KOSDAQ", "SP500", "NASDAQ", "US10Y", "WTI", "NATGAS", "GOLD", "SILVER", "COPPER", "SOX"]
+SNAPSHOT_KPIS = [
+    ("반도체", "메모리 수출 증가율"),
+    ("반도체", "D램 수출 증가율"),
+    ("반도체", "낸드 수출 증가율"),
+    ("반도체", "HBM 성장률"),
+]
 
 
 def render_daily_briefing(tables: dict, scores: pd.DataFrame) -> None:
     st.title("Daily Briefing")
-    st.caption("산업 사이클, 가격, 재무, 뉴스, 이벤트를 결합해 오늘 확인할 투자 가설을 압축합니다.")
+    st.caption("시장 지표, 산업 KPI, 뉴스/공시, 주가 반영도를 함께 읽어 오늘의 리서치 후보와 검증 질문을 압축합니다.")
 
-    prices = tables["daily_prices"].sort_values("date").groupby("ticker").tail(1)
-    stocks = tables["stocks"]
-    latest = scores.merge(prices[["ticker", "return_1d", "return_1m", "return_3m"]], on="ticker", how="left")
+    sector_analysis = build_sector_analysis(tables, scores)
+    event_impacts, market_pricing, second_order = analyze_event_impacts(tables)
+    briefing = _cached_deep_briefing(_table_records(tables), _score_records(scores))
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("분석 종목", len(scores))
-    col2.metric("평균 총점", f"{scores['total_score'].mean():.1f}")
-    col3.metric("강한 섹터", latest.groupby("sector")["momentum_score"].mean().idxmax())
-    col4.metric("이벤트 후보", int((scores["event_score"] > 0).sum()))
+    _render_market_snapshot(tables, scores)
+    _render_core_summary(briefing)
+    _render_sector_cycles(sector_analysis)
+    _render_major_events(event_impacts)
+    _render_direct_beneficiaries(tables, scores)
+    _render_second_order(second_order)
+    _render_overheated(market_pricing, scores)
+    _render_value_plus_cycle(scores)
+    _render_risk_alerts(briefing)
+    _render_questions(briefing)
+    _render_ai_conclusion(briefing)
 
-    st.subheader("오늘 시장 요약")
-    latest_date = prices["date"].max() if not prices.empty else "missing"
-    st.write(f"현재 점수 계산에 사용된 최신 가격 기준일은 **{latest_date}**입니다.")
-    render_industry_insights(tables)
 
-    st.subheader("강한 섹터 TOP 5")
-    sector = (
-        latest.groupby("sector", as_index=False)
-        .agg(avg_total=("total_score", "mean"), avg_momentum=("momentum_score", "mean"), count=("ticker", "count"))
-        .sort_values("avg_total", ascending=False)
-        .head(5)
-    )
-    st.plotly_chart(px.bar(sector, x="sector", y="avg_total", color="avg_momentum"), use_container_width=True)
-    st.dataframe(sector, use_container_width=True, hide_index=True)
+def _render_market_snapshot(tables: dict, scores: pd.DataFrame) -> None:
+    st.subheader("1. Market Snapshot")
+    macro = tables.get("macro_indicators", pd.DataFrame())
+    latest_macro = _latest(macro, ["indicator"]) if not macro.empty else pd.DataFrame()
+    lookup = latest_macro.set_index("indicator").to_dict("index") if not latest_macro.empty else {}
+    columns = st.columns(4)
+    for idx, indicator in enumerate(SNAPSHOT_INDICATORS):
+        item = lookup.get(indicator)
+        label = item.get("name") if item else indicator
+        value = _format_value(item.get("value"), item.get("unit")) if item else "missing"
+        delta = item.get("change_1d") if item else None
+        columns[idx % 4].metric(label, value, delta=f"{delta:g}%" if pd.notna(delta) else None)
 
-    st.subheader("저평가 리서치 후보 TOP 20")
-    undervalued = scores.sort_values(["valuation_score", "total_score"], ascending=False).head(20)
-    st.dataframe(
-        undervalued[["ticker", "name", "sector", "cycle_phase", "industry_cycle_adjustment", "valuation_score", "quality_score", "total_score", "grade", "recommendation_reason"]],
-        use_container_width=True,
-        hide_index=True,
-    )
+    strong, weak = _sector_strength(scores)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**전일 강세 섹터 TOP 5**")
+        st.dataframe(strong, hide_index=True, use_container_width=True)
+    with col2:
+        st.markdown("**전일 약세 섹터 TOP 5**")
+        st.dataframe(weak, hide_index=True, use_container_width=True)
 
-    st.subheader("이벤트 수혜 후보 TOP 20")
-    event_candidates = build_event_candidates(tables, scores).head(20)
-    st.dataframe(
-        event_candidates[
-            [
-                "event_name",
-                "ticker",
-                "name",
-                "relation_type",
-                "relation_strength",
-                "event_score",
-                "price_reflection",
-                "overheat_risk",
-                "earnings_link_probability",
-                "reason",
-            ]
-        ],
-        use_container_width=True,
-        hide_index=True,
-    )
+    kpis = tables.get("industry_kpis", pd.DataFrame())
+    kpi_rows = []
+    for sector, kpi_name in SNAPSHOT_KPIS:
+        status_rows = latest_kpi_status(kpis, sector)
+        matched = next((row for row in status_rows if row.get("kpi_name") == kpi_name), None)
+        kpi_rows.append(
+            {
+                "sector": sector,
+                "kpi": kpi_name,
+                "value": _kpi_value(matched),
+                "status": (matched or {}).get("status", "missing"),
+                "source_url": (matched or {}).get("source_url", ""),
+            }
+        )
+    st.dataframe(kpi_rows, hide_index=True, use_container_width=True, column_config={"source_url": st.column_config.LinkColumn("출처")})
 
-    st.subheader("관심종목 뉴스/공시 알림")
-    news = tables["news"].merge(stocks[["ticker", "name"]], on="ticker", how="left")
-    if news.empty:
-        st.warning("뉴스 데이터가 없습니다. NAVER_CLIENT_ID/NAVER_CLIENT_SECRET 설정 후 사이드바의 NAVER 뉴스 업데이트를 실행하세요.")
-    else:
-        st.dataframe(news[["date", "name", "title", "source", "url", "summary"]], use_container_width=True, hide_index=True)
 
-    st.subheader("리스크 경고 종목")
-    risk = latest.sort_values("risk_penalty", ascending=False).head(10)
-    st.dataframe(
-        risk[["ticker", "name", "sector", "return_1m", "risk_penalty", "total_score", "grade"]],
-        use_container_width=True,
-        hide_index=True,
-    )
+def _render_core_summary(briefing: dict) -> None:
+    st.subheader("2. 오늘의 핵심 요약")
+    st.info(briefing.get("market_summary", "missing"))
 
-    st.subheader("오늘 확인해야 할 질문")
-    questions = [
-        "산업 KPI가 3개월 이상 같은 방향으로 유지되는가?",
-        "현재 산업 국면이 성장인지, 과열인지, 정점인지 구분했는가?",
-        "이벤트가 공식 공시, MOU, 계약, CAPEX 중 어느 단계까지 확인되었는가?",
-        "최근 1개월 상승률이 이미 기대감을 충분히 반영했는가?",
-        "저평가 점수가 높은 종목이 산업 침체기에 있어 value trap이 아닌가?",
-    ]
-    for question in questions:
+
+def _render_sector_cycles(sector_analysis: pd.DataFrame) -> None:
+    st.subheader("3. 섹터별 사이클 분석")
+    if sector_analysis.empty:
+        st.warning("섹터 분석 데이터가 없습니다.")
+        return
+    top = sector_analysis.head(10)
+    st.plotly_chart(px.bar(top, x="sector", y="sector_score", color="cycle_stage"), use_container_width=True)
+    for _, row in top.iterrows():
+        with st.expander(f"{row['sector']} | {row['cycle_stage']} | score {row['sector_score']}"):
+            st.write(row["summary"])
+            st.markdown("**긍정 근거**")
+            st.write(_as_list(row.get("positive_signals_json")) or ["missing"])
+            st.markdown("**부정/주의 신호**")
+            st.write(_as_list(row.get("negative_signals_json")) or ["missing"])
+            st.markdown("**핵심 KPI**")
+            st.dataframe(pd.DataFrame(_as_list(row.get("key_kpis_json"))), hide_index=True, use_container_width=True)
+            st.markdown("**체크포인트**")
+            st.write(_as_list(row.get("watch_points_json")) or ["missing"])
+
+
+def _render_major_events(event_impacts: pd.DataFrame) -> None:
+    st.subheader("4. 오늘의 주요 이벤트")
+    if event_impacts.empty:
+        st.info("분석 가능한 이벤트가 없습니다. NAVER 뉴스 업데이트 후 더 풍부해집니다.")
+        return
+    show = event_impacts[["date", "event_name", "event_type", "impact_timeframe", "earnings_link_probability", "market_pricing_level", "investment_implication"]].head(10)
+    st.dataframe(show, hide_index=True, use_container_width=True)
+    for _, row in event_impacts.head(5).iterrows():
+        with st.expander(row["event_name"]):
+            st.markdown(f"**분석:** {row.get('investment_implication', 'missing')}")
+            st.markdown(f"**직접 수혜:** {', '.join(_as_list(row.get('direct_beneficiaries_json'))) or 'missing'}")
+            st.markdown(f"**2차 수혜:** {', '.join(_as_list(row.get('second_order_beneficiaries_json'))) or 'missing'}")
+            st.markdown(f"**확인 질문:** {', '.join(_as_list(row.get('key_questions_json'))) or 'missing'}")
+            for url in _as_list(row.get("source_urls_json")):
+                if url:
+                    st.link_button("출처 보기", url)
+
+
+def _render_direct_beneficiaries(tables: dict, scores: pd.DataFrame) -> None:
+    st.subheader("5. 직접 수혜주")
+    candidates = build_event_candidates(tables, scores)
+    if candidates.empty:
+        st.info("직접 수혜 후보가 없습니다.")
+        return
+    direct = candidates[candidates["relation_type"].eq("DIRECT")].head(20)
+    columns = ["event_name", "ticker", "name", "event_score", "price_reflection", "overheat_risk", "earnings_link_probability", "reason"]
+    st.dataframe(direct[[column for column in columns if column in direct.columns]], hide_index=True, use_container_width=True)
+
+
+def _render_second_order(second_order: list[dict]) -> None:
+    st.subheader("6. 2차 수혜 후보")
+    if not second_order:
+        st.info("2차 수혜 후보가 없습니다.")
+        return
+    for item in second_order[:6]:
+        with st.expander(item.get("event", "missing")):
+            st.markdown(f"**왜 중요한가:** {item.get('why_it_matters', 'missing')}")
+            st.markdown(f"**시장이 놓칠 수 있는 부분:** {item.get('what_market_may_be_missing', 'missing')}")
+            st.markdown(f"**후보 섹터:** {', '.join(item.get('candidate_sectors', [])) or 'missing'}")
+            st.dataframe(pd.DataFrame(item.get("candidate_stocks", [])), hide_index=True, use_container_width=True)
+
+
+def _render_overheated(market_pricing: pd.DataFrame, scores: pd.DataFrame) -> None:
+    st.subheader("7. 이미 과열된 종목")
+    if market_pricing.empty:
+        st.info("이벤트 발생일 기준 가격 반응 데이터가 부족합니다.")
+        return
+    hot = market_pricing[market_pricing["pricing_level"].isin(["HIGH", "EXTREME"])]
+    if hot.empty:
+        st.success("현재 이벤트 기준 HIGH/EXTREME 과열 신호는 없습니다.")
+        return
+    enriched = hot.merge(scores[["ticker", "name", "sector", "total_score"]], on="ticker", how="left")
+    st.dataframe(enriched[["ticker", "name", "sector", "event_name", "price_reaction_1d", "volume_spike", "pricing_level", "interpretation"]], hide_index=True, use_container_width=True)
+
+
+def _render_value_plus_cycle(scores: pd.DataFrame) -> None:
+    st.subheader("8. 저평가 + 산업 개선 후보")
+    if scores.empty:
+        st.info("스코어 데이터가 없습니다.")
+        return
+    candidate = scores[
+        (scores["valuation_score"] >= scores["valuation_score"].quantile(0.6))
+        & (scores["cycle_stage"].isin(["RECOVERY", "EXPANSION", "UNKNOWN"]))
+    ].head(20)
+    columns = ["ticker", "name", "sector", "intelligence_sector", "cycle_stage", "valuation_score", "sector_cycle_score", "second_order_score", "overheating_penalty", "total_score", "grade", "recommendation_reason"]
+    st.dataframe(candidate[[column for column in columns if column in candidate.columns]], hide_index=True, use_container_width=True)
+
+
+def _render_risk_alerts(briefing: dict) -> None:
+    st.subheader("9. 리스크 경고")
+    alerts = briefing.get("risk_alerts") or []
+    if not alerts:
+        st.info("현재 자동 생성된 리스크 경고가 없습니다.")
+        return
+    st.dataframe(pd.DataFrame(alerts), hide_index=True, use_container_width=True)
+
+
+def _render_questions(briefing: dict) -> None:
+    st.subheader("10. 오늘 확인해야 할 질문")
+    for question in briefing.get("today_key_questions", []) or ["missing"]:
         st.markdown(f"- {question}")
 
-    st.subheader("종목 카드 예시")
-    top = event_candidates.iloc[0].to_dict() if not event_candidates.empty else {}
-    thesis = generate_thesis(top, top)
-    with st.container(border=True):
-        st.markdown(f"**종목명:** {top.get('name', 'missing')}")
-        st.markdown(f"**총점:** {top.get('total_score', 'missing'):.1f}")
-        st.markdown(f"**등급:** {top.get('grade', 'missing')}")
-        for key, value in thesis.items():
-            st.markdown(f"**{key}:** {value}")
 
-    st.subheader("오늘의 AI 산업 인사이트")
-    insight = _cached_daily_ai_insight(
-        _table_records(tables),
-        scores.head(30).to_dict("records") if scores is not None and not scores.empty else [],
-    )
-    with st.container(border=True):
-        for key, value in insight.items():
-            st.markdown(f"**{key}:** {value}")
+def _render_ai_conclusion(briefing: dict) -> None:
+    st.subheader("11. AI 결론")
+    st.success(briefing.get("conclusion", "missing"))
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def _cached_daily_ai_insight(table_records: dict, score_records: list[dict]) -> dict:
+@st.cache_data(ttl=1800, show_spinner=False)
+def _cached_deep_briefing(table_records: dict, score_records: list[dict]) -> dict:
     tables = {name: pd.DataFrame(records) for name, records in table_records.items()}
     scores = pd.DataFrame(score_records)
-    return generate_daily_ai_insight(tables, scores)
+    return generate_deep_daily_briefing(tables, scores)
 
 
 def _table_records(tables: dict) -> dict:
-    keep = ["macro_indicators", "industry_kpis", "industry_kpi_evidence", "news"]
+    keep = ["macro_indicators", "industry_kpis", "industry_kpi_evidence", "news", "events", "event_stock_map", "daily_prices", "stocks", "filings"]
     return {name: tables.get(name, pd.DataFrame()).to_dict("records") for name in keep}
+
+
+def _score_records(scores: pd.DataFrame) -> list[dict]:
+    return scores.head(200).to_dict("records") if scores is not None and not scores.empty else []
+
+
+def _latest(frame: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    return frame.sort_values("date").groupby(keys, as_index=False).tail(1) if frame is not None and not frame.empty else pd.DataFrame()
+
+
+def _sector_strength(scores: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if scores.empty:
+        empty = pd.DataFrame(columns=["sector", "return_1d", "momentum_score"])
+        return empty, empty
+    sector = scores.groupby("sector", as_index=False).agg(return_1d=("return_1d", "mean"), momentum_score=("momentum_score", "mean"), count=("ticker", "count"))
+    return sector.sort_values("return_1d", ascending=False).head(5), sector.sort_values("return_1d").head(5)
+
+
+def _format_value(value, unit) -> str:
+    value = pd.to_numeric(value, errors="coerce")
+    if pd.isna(value):
+        return "missing"
+    return f"{value:,.2f} {unit or ''}".strip()
+
+
+def _kpi_value(row: dict | None) -> str:
+    if not row or row.get("status") == "missing":
+        return "missing"
+    return _format_value(row.get("value"), row.get("unit"))
+
+
+def _as_list(value) -> list:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else [parsed]
+        except Exception:
+            return [value] if value else []
+    return [value]

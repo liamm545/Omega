@@ -58,6 +58,10 @@ CREATE TABLE IF NOT EXISTS scores (
   momentum_score REAL,
   sector_score REAL,
   event_score REAL,
+  sector_cycle_score REAL,
+  event_impact_score REAL,
+  second_order_score REAL,
+  overheating_penalty REAL,
   risk_penalty REAL,
   total_score REAL,
   grade TEXT,
@@ -141,12 +145,20 @@ CREATE TABLE IF NOT EXISTS industry_kpis (
   date TEXT NOT NULL,
   industry TEXT NOT NULL,
   kpi TEXT NOT NULL,
+  sector TEXT,
+  kpi_name TEXT,
   value REAL,
   unit TEXT,
+  yoy_change REAL,
+  mom_change REAL,
   change_1m REAL,
   change_3m REAL,
+  trend_3m REAL,
+  trend_6m REAL,
   source TEXT,
   evidence_url TEXT,
+  source_url TEXT,
+  updated_at TEXT,
   PRIMARY KEY (date, industry, kpi)
 );
 
@@ -178,4 +190,69 @@ CREATE TABLE IF NOT EXISTS industry_cycle_signals (
   beneficiaries TEXT,
   risks TEXT,
   PRIMARY KEY (date, industry)
+);
+
+CREATE TABLE IF NOT EXISTS sector_analysis (
+  date TEXT NOT NULL,
+  sector TEXT NOT NULL,
+  cycle_stage TEXT,
+  confidence REAL,
+  sector_score REAL,
+  positive_signals_json TEXT,
+  negative_signals_json TEXT,
+  key_kpis_json TEXT,
+  beneficiary_groups_json TEXT,
+  risk_factors_json TEXT,
+  watch_points_json TEXT,
+  summary TEXT,
+  created_at TEXT,
+  PRIMARY KEY (date, sector)
+);
+
+CREATE TABLE IF NOT EXISTS event_impacts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  date TEXT,
+  event_name TEXT,
+  event_type TEXT,
+  related_sectors_json TEXT,
+  related_companies_json TEXT,
+  direct_beneficiaries_json TEXT,
+  second_order_beneficiaries_json TEXT,
+  impact_timeframe TEXT,
+  earnings_link_probability REAL,
+  market_pricing_level TEXT,
+  investment_implication TEXT,
+  key_questions_json TEXT,
+  risk_factors_json TEXT,
+  source_urls_json TEXT,
+  created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS market_pricing (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  date TEXT,
+  ticker TEXT,
+  event_name TEXT,
+  price_reaction_1d REAL,
+  price_reaction_3d REAL,
+  price_reaction_5d REAL,
+  volume_spike REAL,
+  market_cap_added REAL,
+  pricing_level TEXT,
+  interpretation TEXT,
+  created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS daily_briefings (
+  date TEXT PRIMARY KEY,
+  market_summary TEXT,
+  top_sector_insights_json TEXT,
+  major_events_json TEXT,
+  stock_watchlist_json TEXT,
+  overheated_stocks_json TEXT,
+  second_order_opportunities_json TEXT,
+  risk_alerts_json TEXT,
+  today_key_questions_json TEXT,
+  conclusion TEXT,
+  created_at TEXT
 );

@@ -200,3 +200,64 @@ def update_industry_kpis_from_news(conn) -> dict:
     message = f"NAVER 뉴스 기반 KPI 추출 완료. 실패/결과없음 {len(failures)}건"
     log_update(conn, "industry.kpis.news", status, kpi_count, message)
     return {"industry_kpis": kpi_count, "evidence": len(evidence), "failures": failures}
+
+
+def update_research_intelligence(conn) -> dict:
+    from datetime import datetime
+    import json
+
+    from event_impact.event_impact_analyzer import analyze_event_impacts
+    from llm.deep_research_analyst import generate_deep_daily_briefing
+    from scoring.total_score import calculate_all_scores
+    from sector_intelligence.sector_analyzer import build_sector_analysis
+
+    table_names = [
+        "stocks",
+        "daily_prices",
+        "financials",
+        "valuation_features",
+        "news",
+        "events",
+        "event_stock_map",
+        "macro_indicators",
+        "industry_kpis",
+        "industry_kpi_evidence",
+        "industry_cycle_signals",
+        "filings",
+    ]
+    tables = {name: load_table(conn, name) for name in table_names}
+    scores = calculate_all_scores(tables)
+    sector_analysis = build_sector_analysis(tables, scores)
+    event_impacts, market_pricing, _ = analyze_event_impacts(tables)
+    briefing = generate_deep_daily_briefing(tables, scores)
+
+    sector_count = upsert_rows(conn, "sector_analysis", sector_analysis, ["date", "sector"])
+    conn.execute("DELETE FROM event_impacts")
+    conn.execute("DELETE FROM market_pricing")
+    conn.commit()
+    if not event_impacts.empty:
+        event_impacts.to_sql("event_impacts", conn, if_exists="append", index=False)
+    if not market_pricing.empty:
+        market_pricing.assign(created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")).to_sql("market_pricing", conn, if_exists="append", index=False)
+    briefing_row = pd.DataFrame(
+        [
+            {
+                "date": briefing.get("date", date.today().isoformat()),
+                "market_summary": briefing.get("market_summary", ""),
+                "top_sector_insights_json": json.dumps(briefing.get("top_sector_insights", []), ensure_ascii=False),
+                "major_events_json": json.dumps(briefing.get("major_events", []), ensure_ascii=False),
+                "stock_watchlist_json": json.dumps(briefing.get("stock_watchlist", []), ensure_ascii=False),
+                "overheated_stocks_json": json.dumps(briefing.get("overheated_stocks", []), ensure_ascii=False),
+                "second_order_opportunities_json": json.dumps(briefing.get("second_order_opportunities", []), ensure_ascii=False),
+                "risk_alerts_json": json.dumps(briefing.get("risk_alerts", []), ensure_ascii=False),
+                "today_key_questions_json": json.dumps(briefing.get("today_key_questions", []), ensure_ascii=False),
+                "conclusion": briefing.get("conclusion", ""),
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        ]
+    )
+    briefing_count = upsert_rows(conn, "daily_briefings", briefing_row, ["date"])
+    conn.commit()
+    message = f"섹터 {sector_count}건, 이벤트 {len(event_impacts)}건, 가격반영 {len(market_pricing)}건, 브리핑 {briefing_count}건"
+    log_update(conn, "research.intelligence", "success", sector_count + len(event_impacts) + len(market_pricing), message)
+    return {"sector_analysis": sector_count, "event_impacts": len(event_impacts), "market_pricing": len(market_pricing), "daily_briefings": briefing_count}
