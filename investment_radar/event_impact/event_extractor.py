@@ -17,7 +17,9 @@ def extract_events_from_news(news: pd.DataFrame, stocks: pd.DataFrame) -> list[d
         event_type = classify_event_type(text)
         ticker = row.get("ticker")
         company = stock_lookup.get(ticker, {}).get("name") if ticker else None
-        direct = [company] if company else []
+        is_negative = event_type.startswith("NEGATIVE")
+        direct = [] if is_negative else ([company] if company else [])
+        negative_companies = [company] if is_negative and company else []
         events.append(
             {
                 "date": row.get("date"),
@@ -27,10 +29,11 @@ def extract_events_from_news(news: pd.DataFrame, stocks: pd.DataFrame) -> list[d
                 "related_sectors": sectors,
                 "direct_beneficiaries": direct,
                 "second_order_beneficiaries": [],
-                "negative_impact_companies": [],
+                "negative_impact_companies": negative_companies,
                 "impact_timeframe": _timeframe(event_type),
                 "earnings_link_probability": _earnings_probability(event_type, bool(company)),
                 "relation_grade": relation_grade(event_type, bool(company)),
+                "sentiment": "NEGATIVE" if is_negative else "POSITIVE_OR_NEUTRAL",
                 "source_urls": [row.get("url")] if row.get("url") else [],
                 "raw_text": text,
                 "ticker": ticker,
@@ -49,6 +52,8 @@ def _related_sectors(text: str) -> list[str]:
 
 
 def _earnings_probability(event_type: str, has_company: bool) -> float:
+    if event_type.startswith("NEGATIVE"):
+        return 0.25 if has_company else 0.15
     base = {
         "SUPPLY_CONTRACT": 0.8,
         "CAPEX": 0.7,
@@ -65,6 +70,8 @@ def _earnings_probability(event_type: str, has_company: bool) -> float:
 
 
 def _timeframe(event_type: str) -> str:
+    if event_type.startswith("NEGATIVE"):
+        return "short/mid"
     if event_type in {"SUPPLY_CONTRACT", "EARNINGS_SURPRISE", "GUIDANCE_CHANGE"}:
         return "short/mid"
     if event_type in {"CAPEX", "POLICY", "EXPORT_DATA", "INDUSTRY_DATA"}:

@@ -25,6 +25,12 @@ FRED_MACRO_SERIES = {
 }
 
 STOOQ_QUOTE_SYMBOLS = {
+    "SP500": {"symbol": "^spx", "name": "S&P500", "unit": "pt"},
+    "NASDAQ": {"symbol": "^ndq", "name": "NASDAQ", "unit": "pt"},
+    "WTI": {"symbol": "cl.f", "name": "WTI", "unit": "USD/bbl"},
+    "NATGAS": {"symbol": "ng.f", "name": "천연가스", "unit": "USD/MMBtu"},
+    "COPPER": {"symbol": "hg.f", "name": "구리", "unit": "USD/lb"},
+    "SOX": {"symbol": "soxx.us", "name": "필라델피아 반도체지수 대체(SOXX)", "unit": "USD"},
     "GOLD": {"symbol": "gc.f", "name": "금", "unit": "USD/oz"},
     "SILVER": {"symbol": "xagusd", "name": "은", "unit": "USD/oz"},
 }
@@ -222,7 +228,9 @@ def collect_macro_indicators_with_diagnostics() -> tuple[pd.DataFrame, list[str]
     combined = pd.concat(frames, ignore_index=True)
     if combined.empty:
         return pd.DataFrame(columns=_macro_columns()), fx_failures + fred_failures + stooq_failures + naver_index_failures + krx_failures
-    return combined.drop_duplicates(subset=["date", "indicator"], keep="last"), fx_failures + fred_failures + stooq_failures + naver_index_failures + krx_failures
+    combined["priority"] = combined["source"].apply(_source_priority)
+    combined = combined.sort_values(["indicator", "priority"]).drop_duplicates(subset=["indicator"], keep="first")
+    return combined.drop(columns=["priority"], errors="ignore"), fx_failures + fred_failures + stooq_failures + naver_index_failures + krx_failures
 
 
 def _fetch_fred_series(series_id: str, timeout: int) -> dict:
@@ -267,6 +275,19 @@ def _parse_number(value):
     if pd.isna(number):
         return None
     return float(number)
+
+
+def _source_priority(source: str) -> int:
+    source = source or ""
+    if source.startswith("NAVER_STOCK_INDEX"):
+        return 0
+    if source.startswith("Frankfurter"):
+        return 0
+    if source.startswith("FRED"):
+        return 1
+    if source.startswith("Stooq"):
+        return 2
+    return 9
 
 
 def _macro_columns() -> list[str]:

@@ -217,6 +217,7 @@ CREATE TABLE IF NOT EXISTS event_impacts (
   related_sectors_json TEXT,
   related_companies_json TEXT,
   direct_beneficiaries_json TEXT,
+  negative_impact_companies_json TEXT,
   second_order_beneficiaries_json TEXT,
   impact_timeframe TEXT,
   earnings_link_probability REAL,

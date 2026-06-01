@@ -82,6 +82,13 @@ def ensure_schema_compatibility(conn: sqlite3.Connection) -> None:
             "overheating_penalty": "REAL",
         },
     )
+    _ensure_columns(
+        conn,
+        "event_impacts",
+        {
+            "negative_impact_companies_json": "TEXT",
+        },
+    )
 
 
 def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:

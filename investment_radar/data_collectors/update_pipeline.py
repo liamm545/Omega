@@ -19,8 +19,12 @@ def update_stock_master(conn) -> dict:
     collector = KrxCollector()
     master = collector.get_stock_master()
     if master.empty:
+        existing = load_table(conn, "stocks")
+        if not existing.empty:
+            log_update(conn, "pykrx.stock_master", "partial", len(existing), "pykrx 종목 마스터 호출 실패. 기존 DB 종목 마스터를 유지합니다.")
+            return {"stocks": len(existing), "stock_master_source": "existing_db"}
         log_update(conn, "pykrx.stock_master", "failed", 0, "종목 마스터를 가져오지 못했습니다.")
-        return {"stocks": 0}
+        return {"stocks": 0, "stock_master_source": "missing"}
     existing = load_table(conn, "stocks")
     if not existing.empty:
         base = master.merge(existing[["ticker", "sector", "industry"]], on="ticker", how="left", suffixes=("", "_existing"))
@@ -62,8 +66,13 @@ def update_market_caps(conn, date_yyyymmdd: str = None) -> dict:
     date_yyyymmdd = date_yyyymmdd or date.today().strftime("%Y%m%d")
     caps = collector.get_market_cap(date_yyyymmdd)
     if caps.empty:
+        derived = _derive_market_caps_from_existing_prices(conn)
+        if not derived.empty:
+            count = upsert_rows(conn, "stocks", derived, ["ticker"])
+            log_update(conn, "pykrx.market_cap", "partial", count, f"{date_yyyymmdd} pykrx 시총 호출 실패. 기존 시총과 최신 가격 기반 추정치를 유지/보정합니다.")
+            return {"market_cap": count, "market_cap_source": "derived_from_existing_db"}
         log_update(conn, "pykrx.market_cap", "failed", 0, f"{date_yyyymmdd} 시총 데이터를 가져오지 못했습니다.")
-        return {"market_cap": 0}
+        return {"market_cap": 0, "market_cap_source": "missing"}
     stocks = load_table(conn, "stocks")
     existing_caps = stocks[["ticker", "market_cap"]].rename(columns={"market_cap": "existing_market_cap"})
     updated = stocks.drop(columns=["market_cap"], errors="ignore").merge(caps, on="ticker", how="left")
@@ -72,6 +81,20 @@ def update_market_caps(conn, date_yyyymmdd: str = None) -> dict:
     count = upsert_rows(conn, "stocks", updated[["ticker", "name", "market", "sector", "industry", "market_cap"]], ["ticker"])
     log_update(conn, "pykrx.market_cap", "success", count, f"{date_yyyymmdd} 시총 업데이트 완료")
     return {"market_cap": count}
+
+
+def _derive_market_caps_from_existing_prices(conn) -> pd.DataFrame:
+    stocks = load_table(conn, "stocks")
+    prices = load_table(conn, "daily_prices")
+    if stocks.empty or prices.empty or "market_cap" not in stocks.columns:
+        return pd.DataFrame()
+    latest = prices.sort_values("date").groupby("ticker", as_index=False).tail(1)
+    baseline = prices.sort_values("date").groupby("ticker", as_index=False).head(1)[["ticker", "close"]].rename(columns={"close": "baseline_close"})
+    derived = stocks.merge(latest[["ticker", "close"]], on="ticker", how="left").merge(baseline, on="ticker", how="left")
+    ratio = pd.to_numeric(derived["close"], errors="coerce") / pd.to_numeric(derived["baseline_close"], errors="coerce")
+    valid = pd.to_numeric(derived["market_cap"], errors="coerce").fillna(0).gt(0) & ratio.replace([float("inf"), -float("inf")], pd.NA).notna()
+    derived.loc[valid, "market_cap"] = derived.loc[valid, "market_cap"] * ratio.loc[valid]
+    return derived[["ticker", "name", "market", "sector", "industry", "market_cap"]]
 
 
 def update_dart_corp_codes(conn) -> dict:

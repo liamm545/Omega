@@ -90,7 +90,7 @@ def _render_sector_cycles(sector_analysis: pd.DataFrame) -> None:
     if sector_analysis.empty:
         st.warning("섹터 분석 데이터가 없습니다.")
         return
-    top = sector_analysis.head(10)
+    top = sector_analysis.head(12)
     st.plotly_chart(px.bar(top, x="sector", y="sector_score", color="cycle_stage"), use_container_width=True)
     for _, row in top.iterrows():
         with st.expander(f"{row['sector']} | {row['cycle_stage']} | score {row['sector_score']}"):
@@ -111,12 +111,27 @@ def _render_major_events(event_impacts: pd.DataFrame) -> None:
         st.info("분석 가능한 이벤트가 없습니다. NAVER 뉴스 업데이트 후 더 풍부해집니다.")
         return
     show = event_impacts[["date", "event_name", "event_type", "impact_timeframe", "earnings_link_probability", "market_pricing_level", "investment_implication"]].head(10)
+    show = show.rename(
+        columns={
+            "date": "날짜",
+            "event_name": "이벤트",
+            "event_type": "이벤트 유형",
+            "impact_timeframe": "영향 기간",
+            "earnings_link_probability": "실적 연결 가능성",
+            "market_pricing_level": "주가 반영도",
+            "investment_implication": "투자 해석",
+        }
+    )
     st.dataframe(show, hide_index=True, use_container_width=True)
     for _, row in event_impacts.head(5).iterrows():
         with st.expander(row["event_name"]):
             st.markdown(f"**분석:** {row.get('investment_implication', 'missing')}")
-            st.markdown(f"**직접 수혜:** {', '.join(_as_list(row.get('direct_beneficiaries_json'))) or 'missing'}")
-            st.markdown(f"**2차 수혜:** {', '.join(_as_list(row.get('second_order_beneficiaries_json'))) or 'missing'}")
+            negative = _as_list(row.get("negative_impact_companies_json"))
+            if negative:
+                st.markdown(f"**부정 영향:** {', '.join(negative)}")
+            else:
+                st.markdown(f"**직접 수혜:** {', '.join(_as_list(row.get('direct_beneficiaries_json'))) or 'missing'}")
+                st.markdown(f"**2차 수혜:** {', '.join(_as_list(row.get('second_order_beneficiaries_json'))) or 'missing'}")
             st.markdown(f"**확인 질문:** {', '.join(_as_list(row.get('key_questions_json'))) or 'missing'}")
             for url in _as_list(row.get("source_urls_json")):
                 if url:
@@ -129,9 +144,21 @@ def _render_direct_beneficiaries(tables: dict, scores: pd.DataFrame) -> None:
     if candidates.empty:
         st.info("직접 수혜 후보가 없습니다.")
         return
-    direct = candidates[candidates["relation_type"].eq("DIRECT")].head(20)
+    direct = candidates[candidates["relation_type"].eq("DIRECT")].drop_duplicates(["ticker", "event_name"]).head(20)
     columns = ["event_name", "ticker", "name", "event_score", "price_reflection", "overheat_risk", "earnings_link_probability", "reason"]
-    st.dataframe(direct[[column for column in columns if column in direct.columns]], hide_index=True, use_container_width=True)
+    view = direct[[column for column in columns if column in direct.columns]].rename(
+        columns={
+            "event_name": "이벤트",
+            "ticker": "티커",
+            "name": "종목명",
+            "event_score": "이벤트 점수",
+            "price_reflection": "주가 반영 상태",
+            "overheat_risk": "단기 과열 위험",
+            "earnings_link_probability": "실적 연결 판단",
+            "reason": "근거",
+        }
+    )
+    st.dataframe(view, hide_index=True, use_container_width=True)
 
 
 def _render_second_order(second_order: list[dict]) -> None:
@@ -139,12 +166,20 @@ def _render_second_order(second_order: list[dict]) -> None:
     if not second_order:
         st.info("2차 수혜 후보가 없습니다.")
         return
-    for item in second_order[:6]:
+    shown = 0
+    for item in second_order:
+        if not item.get("candidate_sectors") and not item.get("candidate_stocks"):
+            continue
+        shown += 1
         with st.expander(item.get("event", "missing")):
             st.markdown(f"**왜 중요한가:** {item.get('why_it_matters', 'missing')}")
             st.markdown(f"**시장이 놓칠 수 있는 부분:** {item.get('what_market_may_be_missing', 'missing')}")
             st.markdown(f"**후보 섹터:** {', '.join(item.get('candidate_sectors', [])) or 'missing'}")
             st.dataframe(pd.DataFrame(item.get("candidate_stocks", [])), hide_index=True, use_container_width=True)
+        if shown >= 6:
+            break
+    if shown == 0:
+        st.info("현재 뉴스에서 논리적 연결고리가 있는 2차 수혜 후보를 찾지 못했습니다.")
 
 
 def _render_overheated(market_pricing: pd.DataFrame, scores: pd.DataFrame) -> None:
@@ -152,12 +187,24 @@ def _render_overheated(market_pricing: pd.DataFrame, scores: pd.DataFrame) -> No
     if market_pricing.empty:
         st.info("이벤트 발생일 기준 가격 반응 데이터가 부족합니다.")
         return
-    hot = market_pricing[market_pricing["pricing_level"].isin(["HIGH", "EXTREME"])]
+    hot = market_pricing[market_pricing["pricing_level"].isin(["HIGH", "EXTREME"])].drop_duplicates(["ticker", "event_name"])
     if hot.empty:
         st.success("현재 이벤트 기준 HIGH/EXTREME 과열 신호는 없습니다.")
         return
     enriched = hot.merge(scores[["ticker", "name", "sector", "total_score"]], on="ticker", how="left")
-    st.dataframe(enriched[["ticker", "name", "sector", "event_name", "price_reaction_1d", "volume_spike", "pricing_level", "interpretation"]], hide_index=True, use_container_width=True)
+    view = enriched[["ticker", "name", "sector", "event_name", "price_reaction_1d", "volume_spike", "pricing_level", "interpretation"]].rename(
+        columns={
+            "ticker": "티커",
+            "name": "종목명",
+            "sector": "섹터",
+            "event_name": "이벤트",
+            "price_reaction_1d": "이벤트 당일 반응",
+            "volume_spike": "거래대금 증가 배수",
+            "pricing_level": "주가 반영도",
+            "interpretation": "해석",
+        }
+    )
+    st.dataframe(view, hide_index=True, use_container_width=True)
 
 
 def _render_value_plus_cycle(scores: pd.DataFrame) -> None:
@@ -169,8 +216,27 @@ def _render_value_plus_cycle(scores: pd.DataFrame) -> None:
         (scores["valuation_score"] >= scores["valuation_score"].quantile(0.6))
         & (scores["cycle_stage"].isin(["RECOVERY", "EXPANSION", "UNKNOWN"]))
     ].head(20)
-    columns = ["ticker", "name", "sector", "intelligence_sector", "cycle_stage", "valuation_score", "sector_cycle_score", "second_order_score", "overheating_penalty", "total_score", "grade", "recommendation_reason"]
-    st.dataframe(candidate[[column for column in columns if column in candidate.columns]], hide_index=True, use_container_width=True)
+    candidate = candidate.assign(
+        판단=lambda frame: frame.apply(_value_cycle_reason, axis=1),
+    )
+    columns = ["ticker", "name", "sector", "intelligence_sector", "cycle_stage", "valuation_score", "sector_cycle_score", "second_order_score", "overheating_penalty", "total_score", "grade", "판단", "recommendation_reason"]
+    view = candidate[[column for column in columns if column in candidate.columns]].rename(
+        columns={
+            "ticker": "티커",
+            "name": "종목명",
+            "sector": "기존 섹터",
+            "intelligence_sector": "분석 섹터",
+            "cycle_stage": "산업 국면",
+            "valuation_score": "저평가 점수",
+            "sector_cycle_score": "산업 개선 점수",
+            "second_order_score": "2차 수혜 점수",
+            "overheating_penalty": "과열 차감",
+            "total_score": "종합 점수",
+            "grade": "등급",
+            "recommendation_reason": "계산 근거",
+        }
+    )
+    st.dataframe(view, hide_index=True, use_container_width=True)
 
 
 def _render_risk_alerts(briefing: dict) -> None:
@@ -246,3 +312,18 @@ def _as_list(value) -> list:
         except Exception:
             return [value] if value else []
     return [value]
+
+
+def _value_cycle_reason(row: pd.Series) -> str:
+    notes = []
+    if row.get("valuation_score", 0) >= 70:
+        notes.append("밸류에이션 매력")
+    if row.get("cycle_stage") in ["RECOVERY", "EXPANSION"]:
+        notes.append("산업 개선 확인")
+    elif row.get("cycle_stage") == "UNKNOWN":
+        notes.append("산업 KPI 확인 필요")
+    if row.get("overheating_penalty", 0) > 0:
+        notes.append("단기 과열 주의")
+    if row.get("second_order_score", 0) >= 50:
+        notes.append("2차 수혜 가능성")
+    return " / ".join(notes) if notes else "근거 부족"

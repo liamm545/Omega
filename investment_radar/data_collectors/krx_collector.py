@@ -67,7 +67,7 @@ class KrxCollector(BaseCollector):
             markets = [market.strip() for market in get_env("INVESTMENT_RADAR_MARKETS", "KOSPI,KOSDAQ").split(",")]
             rows = []
             for market in markets:
-                tickers = stock.get_market_ticker_list(market=market)
+                tickers = stock.get_market_ticker_list(date=None, market=market)
                 rows.extend(
                     {
                         "ticker": ticker,
@@ -120,11 +120,16 @@ class KrxCollector(BaseCollector):
     def _pykrx_market_cap(self, date: str) -> pd.DataFrame:
         try:
             from pykrx import stock
-            frame = stock.get_market_cap(date.replace("-", "")).reset_index()
-            if frame.empty:
+            frames = []
+            for market in [market.strip() for market in get_env("INVESTMENT_RADAR_MARKETS", "KOSPI,KOSDAQ").split(",")]:
+                frame = stock.get_market_cap_by_ticker(date.replace("-", ""), market=market).reset_index()
+                if frame.empty:
+                    continue
+                frame = frame.rename(columns={"티커": "ticker", "시가총액": "market_cap"})
+                frames.append(frame[["ticker", "market_cap"]])
+            if not frames:
                 return pd.DataFrame(columns=["ticker", "market_cap"])
-            frame = frame.rename(columns={"티커": "ticker", "시가총액": "market_cap"})
-            return frame[["ticker", "market_cap"]]
+            return pd.concat(frames, ignore_index=True).drop_duplicates("ticker", keep="last")
         except Exception as error:
             self.logger.warning("pykrx market cap unavailable: %s", error)
             return self.fallback_data.copy()

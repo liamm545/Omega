@@ -48,17 +48,20 @@ def overheating_penalty(pricing_level: str) -> float:
 
 def _pricing_level(reaction_1d: float, volume_spike: float) -> str:
     reaction = reaction_1d or 0
-    if reaction >= 15 or volume_spike >= 10:
+    abs_reaction = abs(reaction)
+    if abs_reaction >= 15 or volume_spike >= 10:
         return "EXTREME"
-    if reaction >= 10 or volume_spike >= 5:
+    if abs_reaction >= 10 or volume_spike >= 5:
         return "HIGH"
-    if reaction >= 3 or volume_spike >= 2:
+    if abs_reaction >= 3 or volume_spike >= 2:
         return "MEDIUM"
     return "LOW"
 
 
 def _interpretation(level: str, reaction_1d: float, volume_spike: float) -> str:
     if level in {"HIGH", "EXTREME"}:
+        if reaction_1d is not None and reaction_1d < 0:
+            return f"악재에 주가가 {reaction_1d:.1f}% 반응했고 거래대금 {volume_spike:.1f}배가 확인됩니다. 단기 충격은 크지만, 실적/수주/성장성 훼손 정도가 주가 하락보다 작은지 검증해야 합니다."
         return f"뉴스 자체가 긍정적이어도 당일 {reaction_1d:.1f}% 반응과 거래대금 {volume_spike:.1f}배가 확인되어 단기 기대감 선반영 가능성이 큽니다."
     if level == "MEDIUM":
         return f"주가 반응 {reaction_1d:.1f}%, 거래대금 {volume_spike:.1f}배로 일부 반영 상태입니다. 후속 공시와 실적 연결을 확인해야 합니다."
